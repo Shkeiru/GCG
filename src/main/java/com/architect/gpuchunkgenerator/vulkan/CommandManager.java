@@ -320,7 +320,7 @@ public class CommandManager {
 
         for (byte[] p : octaves) {
             for (int i = 0; i < 512; i++) {
-                intBuffer.put(p[i] & 0xFF);
+                intBuffer.put(p[i % p.length] & 0xFF);
             }
         }
 

@@ -38,7 +38,7 @@ public class SplineRegistry {
         SPLINE_TO_ID.put(spline, newId);
 
         // Cuisson immédiate pour s'assurer que les données sont prêtes
-        float[] bakedLut = bake(spline);
+        float[] bakedLut = bake(spline, newId);
         REGISTERED_SPLINES.add(new BakedSplineData(newId, bakedLut, RANGE_MIN, RANGE_MAX));
 
         // Dump de l'anatomie pour le debug
@@ -50,7 +50,7 @@ public class SplineRegistry {
     /**
      * Cuit la spline sur l'intervalle [-2.0, 2.0] pour respecter les tangentes de Mojang.
      */
-    private static float[] bake(Object spline) {
+    private static float[] bake(Object spline, int id) {
         float[] lut = new float[RESOLUTION];
         float step = (RANGE_MAX - RANGE_MIN) / (RESOLUTION - 1);
 
@@ -58,6 +58,8 @@ public class SplineRegistry {
             float input = RANGE_MIN + (i * step);
             lut[i] = evaluateVanillaSpline(spline, input);
         }
+
+        System.out.println("[SplineRegistry] Cuisson OK - ID: " + id + " | Points [0]=" + lut[0] + ", [512]=" + lut[512] + ", [1023]=" + lut[1023]);
         return lut;
     }
 
@@ -66,51 +68,56 @@ public class SplineRegistry {
      * Minecraft 1.21 utilise des structures complexes, nous injectons la valeur directement.
      */
     private static float evaluateVanillaSpline(Object spline, float input) {
+        if (spline == null) return 0.0f;
+        String className = spline.getClass().getName();
+
         try {
-            // Dans CubicSpline.Multipoint, la méthode apply(C context) appelle coordinate.apply(context).
-            // Pour cuire, on doit simuler ou contourner le contexte.
-            // On tente d'appeler directement la méthode de calcul interne si elle existe, 
-            // sinon on simule un contexte minimal.
-            
-            String className = spline.getClass().getSimpleName();
-            
-            if (className.contains("Constant")) {
-                Method m = spline.getClass().getDeclaredMethod("value");
-                m.setAccessible(true);
-                return ((Number) m.invoke(spline)).floatValue();
+            // 1. Gestion des Constantes (CubicSpline.Constant)
+            if (className.contains("$Constant")) {
+                try {
+                    // record Constant<C, I>(float value)
+                    return ((Number) getField(spline, "value")).floatValue();
+                } catch (Exception e) {
+                    // Cas d'obfuscation ou autre nom de champ (ex: 'c' ou 'value')
+                    return ((Number) getField(spline, "c")).floatValue();
+                }
             }
 
-            // Pour Multipoint, on utilise la logique Mojang : 
-            // On cherche la méthode calculate(float) ou équivalent.
-            // En 1.21.1, CubicSpline est souvent un Record ou une classe avec des champs locations/values.
-            // Sécurité : Si on ne peut pas évaluer proprement, on renvoie 0.0f (à logger en debug)
-            
-            // Approche robuste : On tente de trouver une méthode qui prend un float ou qui calcule l'interpolation.
-            // Comme le baking est complexe, on va s'appuyer sur le fait que CubicSpline possède une interface
-            // ToFloatFunction. On va mocker le contexte si nécessaire.
-            
-            return evaluateViaHermite(spline, input);
-            
-        } catch (Exception e) {
+            // 2. Gestion des Points Multiples (CubicSpline.Multipoint)
+            if (className.contains("$Multipoint")) {
+                return evaluateViaHermite(spline, input);
+            }
+
+            // 3. Fallback pour constantes primitives directes (si rencontrées)
+            if (spline instanceof Number n) return n.floatValue();
+
+            System.err.println("[SplineRegistry] Type de spline inconnu : " + className);
             return 0.0f;
+
+        } catch (Exception e) {
+            System.err.println("[SplineRegistry] ERREUR FATALE de cuisson pour " + className + " à l'input " + input);
+            e.printStackTrace();
+            throw new RuntimeException("Échec de la cuisson de la spline : " + className, e);
         }
     }
 
     private static float evaluateViaHermite(Object spline, float x) throws Exception {
-        // Extraction des données pour calcul manuel si apply() est trop complexe à mocker
-        float[] locations = (float[]) getField(spline, "locations");
+        // Extraction robuste (float[] ou List<Number> selon l'implémentation du Record)
+        float[] locations = toFloatArray(getField(spline, "locations"));
         List<?> values = (List<?>) getField(spline, "values");
-        float[] derivatives = (float[]) getField(spline, "derivatives");
-        
-        if (locations == null || values == null || derivatives == null) return 0.0f;
+        float[] derivatives = toFloatArray(getField(spline, "derivatives"));
 
+        if (locations == null || values == null || derivatives == null || locations.length == 0) {
+            throw new IllegalStateException("Spline Multipoint incomplète ou invalide (Locations/Values/Derivatives manquants).");
+        }
+
+        int n = locations.length;
         // 1. Clamping aux bornes (Extrapolation linéaire via tangentes)
         if (x <= locations[0]) {
-            return (float) evaluateValue(values.get(0), x) + derivatives[0] * (x - locations[0]);
+            return evaluateVanillaSpline(values.get(0), x) + derivatives[0] * (x - locations[0]);
         }
-        int n = locations.length;
         if (x >= locations[n - 1]) {
-            return (float) evaluateValue(values.get(n - 1), x) + derivatives[n - 1] * (x - locations[n - 1]);
+            return evaluateVanillaSpline(values.get(n - 1), x) + derivatives[n - 1] * (x - locations[n - 1]);
         }
 
         // 2. Recherche de l'intervalle [i, i+1]
@@ -119,28 +126,40 @@ public class SplineRegistry {
             i++;
         }
 
-        // 3. Interpolation Cubique d'Hermite (Maths exactes de Mojang)
+        // 3. Interpolation Cubique d'Hermite (Validation Mathématique Mojang)
         float x0 = locations[i];
         float x1 = locations[i + 1];
         float h = x1 - x0;
         float t = (x - x0) / h;
 
-        float y0 = evaluateValue(values.get(i), x);
-        float y1 = evaluateValue(values.get(i + 1), x);
+        // On récurse si l'élément de 'values' est lui-même une spline
+        float y0 = evaluateVanillaSpline(values.get(i), x);
+        float y1 = evaluateVanillaSpline(values.get(i + 1), x);
+
         float d0 = derivatives[i];
         float d1 = derivatives[i + 1];
 
         float a = d0 * h - (y1 - y0);
         float b = -d1 * h + (y1 - y0);
-        
+
         // Formule: lerp(t, y0, y1) + t * (1-t) * lerp(t, a, b)
         return (y0 + t * (y1 - y0)) + t * (1.0f - t) * (a + t * (b - a));
     }
 
-    private static float evaluateValue(Object val, float x) throws Exception {
-        if (val instanceof Number n) return n.floatValue();
-        // Si c'est une spline imbriquée, on récurse la cuisson
-        return evaluateViaHermite(val, x);
+    private static float[] toFloatArray(Object obj) {
+        if (obj == null) return null;
+        if (obj instanceof float[] f) return f;
+        if (obj instanceof List<?> l) {
+            float[] res = new float[l.size()];
+            for (int i = 0; i < l.size(); i++) res[i] = ((Number) l.get(i)).floatValue();
+            return res;
+        }
+        if (obj instanceof double[] d) {
+            float[] res = new float[d.length];
+            for (int i = 0; i < d.length; i++) res[i] = (float) d[i];
+            return res;
+        }
+        return null;
     }
 
     private static Object getField(Object obj, String name) throws Exception {

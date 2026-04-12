@@ -206,7 +206,7 @@ float blendedNoise(float globalX, float globalY, float globalZ) {
         total += perlinNoiseLegacy(nx*freq, ny*freq, nz*freq, i*512) * amp;
         freq *= 2.0; amp *= 0.5;
     }
-    return total;
+    return total * 20.0f;
 }
 
 // ==============================
