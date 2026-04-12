@@ -133,15 +133,17 @@ public abstract class NoiseBasedChunkGeneratorMixin {
                     int worldY = minY + y;
                     
                     if (density > 0.0f) {
+                        if (worldY < 63) {
+                            int worldX = (chunkX << 4) + x;
+                            int worldZ = (chunkZ << 4) + z;
+                            pos.set(worldX, worldY, worldZ);
+                            chunk.setBlockState(pos, water, false);
+                        }
+                    } else {
                         int worldX = (chunkX << 4) + x;
                         int worldZ = (chunkZ << 4) + z;
                         pos.set(worldX, worldY, worldZ);
                         chunk.setBlockState(pos, stone, false);
-                    } else if (worldY < 63) {
-                        int worldX = (chunkX << 4) + x;
-                        int worldZ = (chunkZ << 4) + z;
-                        pos.set(worldX, worldY, worldZ);
-                        chunk.setBlockState(pos, water, false);
                     }
                 }
             }
