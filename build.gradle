@@ -1,0 +1,100 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'net.neoforged.moddev' version '2.0.141'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+version = mod_version
+group = 'com.architect.gpuchunkgenerator'
+
+base {
+    archivesName = mod_id
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    version = neo_version
+
+    runs {
+        client {
+            client()
+            systemProperty 'neoforge.enabledGameTestNamespaces', mod_id
+            systemProperty 'org.lwjgl.system.stackSize', '256'
+        }
+        server {
+            server()
+            programArgument '--nogui'
+            systemProperty 'neoforge.enabledGameTestNamespaces', mod_id
+            systemProperty 'org.lwjgl.system.stackSize', '256'
+        }
+    }
+
+    mods {
+        "${mod_id}" {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+sourceSets.main.resources { srcDir 'src/generated/resources' }
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // LWJGL Vulkan & Shaderc (Headless Compute)
+    def lwjglVersion = "3.3.3"
+    implementation platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
+    
+    // On utilise jarJar pour que les libs soient embarquées
+    implementation "org.lwjgl:lwjgl-vulkan:3.3.3"
+    implementation "org.lwjgl:lwjgl-shaderc:3.3.3"
+    jarJar "org.lwjgl:lwjgl-vulkan:3.3.3"
+    jarJar "org.lwjgl:lwjgl-shaderc:3.3.3"
+    
+    // Pour le développement (runClient), on les ajoute explicitement au runtime classpath
+    additionalRuntimeClasspath "org.lwjgl:lwjgl-vulkan:3.3.3"
+    additionalRuntimeClasspath "org.lwjgl:lwjgl-shaderc:3.3.3"
+    additionalRuntimeClasspath "org.lwjgl:lwjgl-shaderc:3.3.3:natives-linux"
+    
+    // Cross-platform natives for Shaderc
+    runtimeOnly "org.lwjgl:lwjgl-shaderc::natives-windows"
+    runtimeOnly "org.lwjgl:lwjgl-shaderc::natives-linux"
+    runtimeOnly "org.lwjgl:lwjgl-shaderc::natives-macos"
+    runtimeOnly "org.lwjgl:lwjgl-shaderc::natives-macos-arm64"
+}
+
+tasks.withType(ProcessResources).configureEach {
+    var replaceProperties = [
+            minecraft_version      : minecraft_version,
+            minecraft_version_range: minecraft_version_range,
+            neo_version            : neo_version,
+            neo_version_range      : neo_version_range,
+            loader_version_range   : loader_version_range,
+            mod_id                 : mod_id,
+            mod_name               : mod_name,
+            mod_license            : mod_license,
+            mod_version            : mod_version,
+            mod_authors            : mod_authors,
+            mod_description        : mod_description
+    ]
+    inputs.properties replaceProperties
+
+    filesMatching(['META-INF/neoforge.mods.toml']) {
+        expand replaceProperties
+    }
+}
+
+publishing {
+    publications {
+        register('mavenJava', MavenPublication) {
+            from components.java
+        }
+    }
+}

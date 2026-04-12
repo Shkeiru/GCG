@@ -1,0 +1,49 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "Client",
+      "presentation": {
+        "group": "Mod Development - gpuchunkgenerator",
+        "order": 0
+      },
+      "projectName": "gpuchunkgenerator",
+      "mainClass": "net.neoforged.devlaunch.Main",
+      "args": [
+        "@/home/shkeiru/Documents/Programmes/Java/Minecraft/Mods/1.21.1/GCG/build/moddev/clientRunProgramArgs.txt"
+      ],
+      "vmArgs": [
+        "@/home/shkeiru/Documents/Programmes/Java/Minecraft/Mods/1.21.1/GCG/build/moddev/clientRunVmArgs.txt",
+        "-Dfml.modFolders\u003dgpuchunkgenerator%%/home/shkeiru/Documents/Programmes/Java/Minecraft/Mods/1.21.1/GCG/bin/main"
+      ],
+      "cwd": "${workspaceFolder}/run",
+      "env": {},
+      "console": "internalConsole",
+      "shortenCommandLine": "none"
+    },
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "Server",
+      "presentation": {
+        "group": "Mod Development - gpuchunkgenerator",
+        "order": 1
+      },
+      "projectName": "gpuchunkgenerator",
+      "mainClass": "net.neoforged.devlaunch.Main",
+      "args": [
+        "@/home/shkeiru/Documents/Programmes/Java/Minecraft/Mods/1.21.1/GCG/build/moddev/serverRunProgramArgs.txt"
+      ],
+      "vmArgs": [
+        "@/home/shkeiru/Documents/Programmes/Java/Minecraft/Mods/1.21.1/GCG/build/moddev/serverRunVmArgs.txt",
+        "-Dfml.modFolders\u003dgpuchunkgenerator%%/home/shkeiru/Documents/Programmes/Java/Minecraft/Mods/1.21.1/GCG/bin/main"
+      ],
+      "cwd": "${workspaceFolder}/run",
+      "env": {},
+      "console": "internalConsole",
+      "shortenCommandLine": "none"
+    }
+  ]
+}
