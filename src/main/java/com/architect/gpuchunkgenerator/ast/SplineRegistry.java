@@ -41,8 +41,30 @@ public class SplineRegistry {
         float[] bakedLut = bake(spline, newId);
         REGISTERED_SPLINES.add(new BakedSplineData(newId, bakedLut, RANGE_MIN, RANGE_MAX));
 
+        // Logging et vérification des valeurs cuites
+        float minVal = Float.MAX_VALUE;
+        float maxVal = -Float.MAX_VALUE;
+        boolean allZeros = true;
+        for (float v : bakedLut) {
+            if (v < minVal) minVal = v;
+            if (v > maxVal) maxVal = v;
+            if (v != 0.0f) allZeros = false;
+        }
+
+        System.out.println("[SplineRegistry] Spline #" + newId + " : min=" + bakedLut[0] + " max=" + bakedLut[RESOLUTION - 1] +
+            " range=[" + minVal + ", " + maxVal + "]" + (allZeros ? " ⚠️ ATTENTION: TOTALEMENT NULLE!" : ""));
+
         // Dump de l'anatomie pour le debug
         SplineDumper.dumpSpline(spline, 0);
+
+        // Dump dans un fichier
+        try {
+            java.nio.file.Files.writeString(
+                java.nio.file.Paths.get("spline_baked_dump.txt"),
+                "Spline #" + newId + " min=" + minVal + " max=" + maxVal + "\n",
+                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND
+            );
+        } catch (Exception e) {}
 
         return new GpuNode.Spline(coordinate, newId, RANGE_MIN, RANGE_MAX);
     }

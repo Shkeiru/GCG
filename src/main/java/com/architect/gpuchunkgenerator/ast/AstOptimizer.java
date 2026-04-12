@@ -94,6 +94,11 @@ public class AstOptimizer {
             return new GpuNode.Unknown(className + "_NoInner");
         }
 
+        // Slide → input()
+        if (className.equals("Slide")) {
+            return visit(invokeSafe(obj, "input"));
+        }
+
         // BlendAlpha et BlendOffset — constantes
         if (className.equals("BlendAlpha")) return new GpuNode.Constant(1.0);
         if (className.equals("BlendOffset")) return new GpuNode.Constant(0.0);
@@ -215,6 +220,7 @@ public class AstOptimizer {
 
         // Nœud non reconnu
         unknownCount++;
+        System.err.println("[AstOptimizer] TYPE NON GÉRÉ: " + className + " → 0.0f");
         System.err.println("[GCG-CRITICAL] Nœud inconnu rencontré : " + className + " | Dump : " + obj.toString());
         return new GpuNode.Unknown(className);
     }
@@ -302,23 +308,38 @@ public class AstOptimizer {
     private static GpuNode extractSpline(Object obj) {
         Object internalSpline = invokeSafe(obj, "spline");
 
-        // Le coordinate est dans la CubicSpline, pas dans le DensityFunctions.Spline
-        // On doit le déléguer au SplineRegistry qui sait naviguer la structure
         GpuNode coordinateNode = new GpuNode.Constant(0.0); // Fallback
         
-        // Tenter d'extraire le coordinate depuis la spline interne
-        Object coordWrapper = invokeSafe(internalSpline, "coordinate");
-        if (coordWrapper == null) {
-            // Essayer via la méthode coordinateFunction() ou locationFunction()
-            coordWrapper = invokeSafe(internalSpline, "coordinateFunction");
+        // Tenter d'extraire le coordinate depuis l'objet Spline principal s'il existe
+        Object coordWrapper = invokeSafe(obj, "coordinate");
+
+        if (coordWrapper == null && internalSpline != null) {
+            // Sinon tenter d'extraire le coordinate depuis la spline interne
+            coordWrapper = invokeSafe(internalSpline, "coordinate");
+            if (coordWrapper == null) {
+                // Essayer via la méthode coordinateFunction() ou locationFunction()
+                coordWrapper = invokeSafe(internalSpline, "coordinateFunction");
+            }
         }
+
         if (coordWrapper != null) {
-            // Le coordinate wrapper contient un Holder<DensityFunction>
-            Object holder = invokeSafe(coordWrapper, "function");
-            if (holder instanceof Holder<?> h && h.isBound()) {
-                coordinateNode = visit(h.value());
-            } else if (holder != null) {
-                coordinateNode = visit(holder);
+            // Si coordWrapper est directement un DensityFunction
+            if (coordWrapper instanceof DensityFunction df) {
+                coordinateNode = visit(df);
+            } else {
+                // Le coordinate wrapper contient un Holder<DensityFunction>
+                Object holder = invokeSafe(coordWrapper, "function");
+                if (holder == null) {
+                    holder = findFieldByType(coordWrapper, DensityFunction.class);
+                }
+
+                if (holder instanceof Holder<?> h && h.isBound()) {
+                    coordinateNode = visit(h.value());
+                } else if (holder != null) {
+                    coordinateNode = visit(holder);
+                } else {
+                    coordinateNode = visit(coordWrapper);
+                }
             }
         }
 
