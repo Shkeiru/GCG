@@ -18,6 +18,7 @@ public sealed interface GpuNode permits
     GpuNode.RangeChoice,
     GpuNode.WeirdScaledSampler,
     GpuNode.BlendedNoise,
+    GpuNode.Reference,
     GpuNode.Unknown {
 
     // ========================
@@ -165,6 +166,9 @@ public sealed interface GpuNode permits
 
     /** Bruit interpolé Vanilla (Overworld terrain). */
     record BlendedNoise() implements GpuNode {}
+
+    /** Appel à une fonction GLSL nommée (ex: get_Continents). */
+    record Reference(String functionName) implements GpuNode {}
 
     /** Nœud non reconnu — DOIT être éliminé avant la production. */
     record Unknown(String originalType) implements GpuNode {}

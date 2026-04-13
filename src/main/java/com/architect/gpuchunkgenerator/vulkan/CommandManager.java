@@ -440,6 +440,10 @@ public class CommandManager {
             legacySplineLutBuffer.destroy(device);
         }
 
+        if (noisePermutationBuffer != null) {
+            noisePermutationBuffer.destroy(device);
+        }
+
         vkUnmapMemory(device, stagingBuffer.memoryHandle());
         deviceBuffer.destroy(device);
         stagingBuffer.destroy(device);

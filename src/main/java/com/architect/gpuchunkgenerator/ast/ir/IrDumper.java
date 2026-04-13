@@ -117,6 +117,9 @@ public class IrDumper {
             case GpuNode.BlendedNoise bn ->
                 sb.append(indent).append("- BlendedNoise (Interpolated Terrain)\n");
 
+            case GpuNode.Reference ref ->
+                sb.append(indent).append("- Reference: ").append(ref.functionName()).append("\n");
+
             case GpuNode.Unknown unknown ->
                 sb.append(indent).append("- UNKNOWN: ").append(unknown.originalType()).append("\n");
         }

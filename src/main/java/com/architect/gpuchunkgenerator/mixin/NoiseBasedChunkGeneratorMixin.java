@@ -59,6 +59,15 @@ public abstract class NoiseBasedChunkGeneratorMixin {
                 
                 com.architect.gpuchunkgenerator.ast.ir.GpuNode optimizedTree = com.architect.gpuchunkgenerator.ast.AstOptimizer.optimize(finalDensity);
                 com.architect.gpuchunkgenerator.ast.ir.IrDumper.dumpToFile(optimizedTree, "overworld_ir_dump.txt");
+                
+                // --- APPEL DU DUMP DE SPLINES ---
+                System.out.println("[GCG] Extraction de l'anatomie des splines...");
+                com.architect.gpuchunkgenerator.ast.SplineDumper.clear();
+                // On dumpera toutes les splines rencontrées durant l'optimisation ou spécifiques
+                Object surfaceSpline = findFirstSpline(finalDensity);
+                if (surfaceSpline != null) {
+                    com.architect.gpuchunkgenerator.ast.SplineDumper.dumpSpline(surfaceSpline, 0);
+                }
                 java.nio.file.Files.writeString(java.nio.file.Paths.get("spline_anatomy_dump.txt"), com.architect.gpuchunkgenerator.ast.SplineDumper.getResult());
                 
                 // C. L'orchestration Multi-LUT est désormais gérée automatiquement par le SplineRegistry
@@ -67,19 +76,33 @@ public abstract class NoiseBasedChunkGeneratorMixin {
                 // D. Extraction et Transpilation Biômique (Parité C-E-W)
                 com.architect.gpuchunkgenerator.ast.GlslTranspiler transpiler = new com.architect.gpuchunkgenerator.ast.GlslTranspiler();
                 
-                com.architect.gpuchunkgenerator.ast.ir.GpuNode optCont = com.architect.gpuchunkgenerator.ast.AstOptimizer.optimize(randomState.router().continents());
-                com.architect.gpuchunkgenerator.ast.ir.GpuNode optEro = com.architect.gpuchunkgenerator.ast.AstOptimizer.optimize(randomState.router().erosion());
-                com.architect.gpuchunkgenerator.ast.ir.GpuNode optRid = com.architect.gpuchunkgenerator.ast.AstOptimizer.optimize(randomState.router().ridges());
+                net.minecraft.world.level.levelgen.DensityFunction rawCont = randomState.router().continents();
+                net.minecraft.world.level.levelgen.DensityFunction rawEro = randomState.router().erosion();
+                net.minecraft.world.level.levelgen.DensityFunction rawRid = randomState.router().ridges();
+
+                com.architect.gpuchunkgenerator.ast.ir.GpuNode optCont = com.architect.gpuchunkgenerator.ast.AstOptimizer.optimize(rawCont);
+                com.architect.gpuchunkgenerator.ast.ir.GpuNode optEro = com.architect.gpuchunkgenerator.ast.AstOptimizer.optimize(rawEro);
+                com.architect.gpuchunkgenerator.ast.ir.GpuNode optRid = com.architect.gpuchunkgenerator.ast.AstOptimizer.optimize(rawRid);
 
                 String biomicGlsl = transpiler.transpileAsFunction("get_Continents", optCont) +
                                    transpiler.transpileAsFunction("get_Erosion", optEro) +
                                    transpiler.transpileAsFunction("get_Weirdness", optRid);
 
+                // E. RE-OPTIMISATION de finalDensity avec Mappings Forcés
+                // Cela permet d'injecter des appels de fonctions au lieu d'inliner les arbres
+                com.architect.gpuchunkgenerator.ast.AstOptimizer.clearForcedMappings();
+                com.architect.gpuchunkgenerator.ast.AstOptimizer.registerForcedMapping(rawCont, new com.architect.gpuchunkgenerator.ast.ir.GpuNode.Reference("get_Continents"));
+                com.architect.gpuchunkgenerator.ast.AstOptimizer.registerForcedMapping(rawEro, new com.architect.gpuchunkgenerator.ast.ir.GpuNode.Reference("get_Erosion"));
+                com.architect.gpuchunkgenerator.ast.AstOptimizer.registerForcedMapping(rawRid, new com.architect.gpuchunkgenerator.ast.ir.GpuNode.Reference("get_Weirdness"));
+                
+                com.architect.gpuchunkgenerator.ast.ir.GpuNode modularTree = com.architect.gpuchunkgenerator.ast.AstOptimizer.optimize(finalDensity);
+                
                 // F. Injection des Paramètres de Bruit réels (Injection du "Cerveau" JIT)
                 VulkanContext.getInstance().uploadNoiseParameters(com.architect.gpuchunkgenerator.ast.NoiseExtractor.getRegisteredNoises());
                 
-                String mainGlsl = transpiler.transpile(optimizedTree);
-                String glslCode = mainGlsl.replace("void main()", biomicGlsl + "\nvoid main()");
+                String glslCode = transpiler.transpile(modularTree);
+                // On injecte les fonctions biômiques avant le main()
+                glslCode = glslCode.replace("void main()", biomicGlsl + "\nvoid main()");
 
                 // Sauvegarde de debug du shader généré
                 try {

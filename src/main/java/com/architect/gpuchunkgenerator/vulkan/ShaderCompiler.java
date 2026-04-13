@@ -24,7 +24,7 @@ public class ShaderCompiler {
         long options = shaderc_compile_options_initialize();
         // Optionnel : Configurer les options ici (ex: optimisation, version cible)
         shaderc_compile_options_set_target_env(options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
-        shaderc_compile_options_set_optimization_level(options, shaderc_optimization_level_performance);
+        shaderc_compile_options_set_optimization_level(options, shaderc_optimization_level_size);
 
         long result = shaderc_compile_into_spv(compiler, source, shaderKind, "main.comp", "main", options);
         if (result == 0) {

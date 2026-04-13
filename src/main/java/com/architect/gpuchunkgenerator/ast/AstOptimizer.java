@@ -7,7 +7,9 @@ import net.minecraft.world.level.levelgen.synth.NormalNoise;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -28,6 +30,22 @@ public class AstOptimizer {
 
     private static int depth = 0;
     private static int unknownCount = 0;
+    private static final Map<Object, GpuNode> FORCED_MAPPINGS = new IdentityHashMap<>();
+
+    /**
+     * Enregistre un mapping forcé (ex: une instance de DensityFunction -> GpuNode.Reference).
+     * Utilise l'identité mémoire de l'objet source.
+     */
+    public static void registerForcedMapping(Object vanillaObj, GpuNode node) {
+        if (vanillaObj != null) {
+            FORCED_MAPPINGS.put(vanillaObj, node);
+            System.out.println("[GCG-AstOptimizer] Mapping forcé enregistré pour " + vanillaObj.getClass().getSimpleName());
+        }
+    }
+
+    public static void clearForcedMappings() {
+        FORCED_MAPPINGS.clear();
+    }
 
     public static GpuNode optimize(DensityFunction function) {
         depth = 0;
@@ -53,51 +71,48 @@ public class AstOptimizer {
     }
 
     private static GpuNode visitInternal(Object obj) {
-        // --- Holder unwrapping ---
-        if (obj instanceof Holder<?> holder) {
-            return holder.isBound() ? visit(holder.value()) : new GpuNode.Unknown("UnboundHolder");
-        }
+        Object current = obj;
+        String className = current.getClass().getSimpleName();
 
-        String className = obj.getClass().getSimpleName();
-
-        // ============================================================
-        // PHASE 1 : Wrappers transparents (traversal pur, aucun nœud émis)
-        // ============================================================
-
-        // HolderHolder → function().value()
-        if (className.equals("HolderHolder")) {
-            Object holder = invokeSafe(obj, "function");
-            if (holder instanceof Holder<?> h && h.isBound()) {
-                return visit(h.value());
+        // --- 1. Déballage des Wrappers (Traversal pur) ---
+        while (className.equals("Marker") || className.equals("BlendDensity") || 
+               className.equals("Slide") || current instanceof Holder || 
+               className.equals("HolderHolder")) {
+            
+            if (current instanceof Holder<?> holder) {
+                if (!holder.isBound()) return new GpuNode.Unknown("UnboundHolder");
+                current = holder.value();
+            } else if (className.equals("Marker")) {
+                current = invokeSafe(current, "wrapped");
+            } else if (className.equals("BlendDensity") || className.equals("Slide")) {
+                current = invokeSafe(current, "input");
+            } else if (className.equals("HolderHolder")) {
+                Object h = invokeSafe(current, "function");
+                if (h instanceof Holder<?> holder && holder.isBound()) {
+                    current = holder.value();
+                } else {
+                    current = h;
+                }
             }
-            return visit(holder);
+            if (current == null) return new GpuNode.Constant(0.0);
+            className = current.getClass().getSimpleName();
         }
 
-        // Marker → wrapped()
-        if (className.equals("Marker")) {
-            return visit(invokeSafe(obj, "wrapped"));
+        // --- 2. Priorité aux mappings forcés (Identité sur l'objet déballé) ---
+        if (FORCED_MAPPINGS.containsKey(current)) {
+            System.out.println("[GCG-AstOptimizer] Mapping forcé utilisé pour " + className);
+            return FORCED_MAPPINGS.get(current);
         }
 
-        // BlendDensity → input()
-        if (className.equals("BlendDensity")) {
-            return visit(invokeSafe(obj, "input"));
-        }
-
-        // Caches persistants (runtime NoiseChunk) — tous traversent vers le contenu
+        // --- 3. Gestion des caches et bruits (Passage à travers) ---
         if (className.equals("FlatCache") || className.equals("CacheAllInCell") ||
             className.equals("Cache2D") || className.equals("CacheOnce") ||
             className.equals("NoiseInterpolator")) {
-            // Essayer 'wrapped' d'abord, puis 'input', puis chercher un champ DensityFunction
-            Object inner = invokeSafe(obj, "wrapped");
-            if (inner == null) inner = invokeSafe(obj, "input");
-            if (inner == null) inner = findFieldByType(obj, DensityFunction.class);
+            Object inner = invokeSafe(current, "wrapped");
+            if (inner == null) inner = invokeSafe(current, "input");
+            if (inner == null) inner = findFieldByType(current, DensityFunction.class);
             if (inner != null) return visit(inner);
             return new GpuNode.Unknown(className + "_NoInner");
-        }
-
-        // Slide → input()
-        if (className.equals("Slide")) {
-            return visit(invokeSafe(obj, "input"));
         }
 
         // BlendAlpha et BlendOffset — constantes
@@ -109,18 +124,25 @@ public class AstOptimizer {
             // PHASE 2 : Nœuds terminaux (feuilles)
             // ============================================================
 
-            // Constant
-            if (className.equals("Constant")) {
-                return new GpuNode.Constant((double) invokeSafe(obj, "value"));
+            // Constant (DensityFunction ou CubicSpline)
+            if (className.equals("Constant") || className.contains("$Constant")) {
+                Object valObj = invokeSafe(current, "value");
+                if (valObj == null) valObj = invokeSafe(current, "c");
+                return new GpuNode.Constant(((Number) valObj).doubleValue());
+            }
+
+            // Multipoint (CubicSpline interne)
+            if (className.equals("Multipoint") || className.contains("$Multipoint")) {
+                return extractSplineInternal(current);
             }
 
             // YClampedGradient
             if (className.equals("YClampedGradient")) {
                 return new GpuNode.YClampedGradient(
-                    (int) invokeSafe(obj, "fromY"),
-                    (int) invokeSafe(obj, "toY"),
-                    (double) invokeSafe(obj, "fromValue"),
-                    (double) invokeSafe(obj, "toValue")
+                    (int) invokeSafe(current, "fromY"),
+                    (int) invokeSafe(current, "toY"),
+                    (double) invokeSafe(current, "fromValue"),
+                    (double) invokeSafe(current, "toValue")
                 );
             }
 
@@ -130,23 +152,23 @@ public class AstOptimizer {
 
             // Noise → GpuNode.Noise
             if (className.equals("Noise")) {
-                return extractNoise(obj);
+                return extractNoise(current);
             }
 
             // ShiftedNoise → GpuNode.ShiftedNoise
             if (className.equals("ShiftedNoise")) {
-                return extractShiftedNoise(obj);
+                return extractShiftedNoise(current);
             }
 
             // Shift / ShiftA / ShiftB → GpuNode.ShiftNoise
             if (className.equals("Shift")) {
-                return extractShiftNoise(obj, GpuNode.ShiftType.SHIFT_XYZ);
+                return extractShiftNoise(current, GpuNode.ShiftType.SHIFT_XYZ);
             }
             if (className.equals("ShiftA")) {
-                return extractShiftNoise(obj, GpuNode.ShiftType.SHIFT_A);
+                return extractShiftNoise(current, GpuNode.ShiftType.SHIFT_A);
             }
             if (className.equals("ShiftB")) {
-                return extractShiftNoise(obj, GpuNode.ShiftType.SHIFT_B);
+                return extractShiftNoise(current, GpuNode.ShiftType.SHIFT_B);
             }
 
             // ============================================================
@@ -155,32 +177,32 @@ public class AstOptimizer {
 
             // Ap2 (Binary: ADD, MUL, MIN, MAX)
             if (className.equals("Ap2")) {
-                String type = invokeSafe(obj, "type").toString();
-                GpuNode left = visit(invokeSafe(obj, "argument1"));
-                GpuNode right = visit(invokeSafe(obj, "argument2"));
+                String type = invokeSafe(current, "type").toString();
+                GpuNode left = visit(invokeSafe(current, "argument1"));
+                GpuNode right = visit(invokeSafe(current, "argument2"));
                 return foldBinary(type, left, right);
             }
 
             // MulOrAdd (input OP argument)
             if (className.equals("MulOrAdd")) {
-                String type = invokeSafe(obj, "specificType").toString();
-                GpuNode input = visit(invokeSafe(obj, "input"));
-                double argValue = (double) invokeSafe(obj, "argument");
+                String type = invokeSafe(current, "specificType").toString();
+                GpuNode input = visit(invokeSafe(current, "input"));
+                double argValue = (double) invokeSafe(current, "argument");
                 return foldBinary(type, input, new GpuNode.Constant(argValue));
             }
 
             // Mapped (Unary: ABS, SQUARE, CUBE, SQUEEZE, HALF_NEGATIVE, QUARTER_NEGATIVE)
             if (className.equals("Mapped")) {
-                String type = invokeSafe(obj, "type").toString();
-                GpuNode input = visit(invokeSafe(obj, "input"));
+                String type = invokeSafe(current, "type").toString();
+                GpuNode input = visit(invokeSafe(current, "input"));
                 return foldUnary(type, input);
             }
 
             // Clamp
             if (className.equals("Clamp")) {
-                GpuNode input = visit(invokeSafe(obj, "input"));
-                double min = (double) invokeSafe(obj, "minValue");
-                double max = (double) invokeSafe(obj, "maxValue");
+                GpuNode input = visit(invokeSafe(current, "input"));
+                double min = (double) invokeSafe(current, "minValue");
+                double max = (double) invokeSafe(current, "maxValue");
                 return new GpuNode.BinaryOp("CLAMP", input,
                     new GpuNode.BinaryOp("RANGE", new GpuNode.Constant(min), new GpuNode.Constant(max)));
             }
@@ -191,22 +213,22 @@ public class AstOptimizer {
 
             // Spline → GpuNode.Spline (via SplineRegistry)
             if (className.equals("Spline")) {
-                return extractSpline(obj);
+                return extractSpline(current);
             }
 
             // RangeChoice
             if (className.equals("RangeChoice")) {
-                GpuNode input = visit(invokeSafe(obj, "input"));
-                double minInc = (double) invokeSafe(obj, "minInclusive");
-                double maxExc = (double) invokeSafe(obj, "maxExclusive");
-                GpuNode whenInRange = visit(invokeSafe(obj, "whenInRange"));
-                GpuNode whenOutOfRange = visit(invokeSafe(obj, "whenOutOfRange"));
+                GpuNode input = visit(invokeSafe(current, "input"));
+                double minInc = (double) invokeSafe(current, "minInclusive");
+                double maxExc = (double) invokeSafe(current, "maxExclusive");
+                GpuNode whenInRange = visit(invokeSafe(current, "whenInRange"));
+                GpuNode whenOutOfRange = visit(invokeSafe(current, "whenOutOfRange"));
                 return new GpuNode.RangeChoice(input, minInc, maxExc, whenInRange, whenOutOfRange);
             }
 
             // WeirdScaledSampler
             if (className.equals("WeirdScaledSampler")) {
-                return extractWeirdScaledSampler(obj);
+                return extractWeirdScaledSampler(current);
             }
 
             // BlendedNoise
@@ -222,7 +244,7 @@ public class AstOptimizer {
         // Nœud non reconnu
         unknownCount++;
         System.err.println("[AstOptimizer] TYPE NON GÉRÉ: " + className + " → 0.0f");
-        System.err.println("[GCG-CRITICAL] Nœud inconnu rencontré : " + className + " | Dump : " + obj.toString());
+        System.err.println("[GCG-CRITICAL] Nœud inconnu rencontré : " + className + " | Dump : " + current.toString());
         return new GpuNode.Unknown(className);
     }
 
@@ -527,6 +549,38 @@ public class AstOptimizer {
             return key.map(Object::toString).orElse("internal");
         } catch (Exception e) {
             return "unknown";
+        }
+    }
+    /**
+     * Extrait un Multipoint CubicSpline qui n'est pas enveloppé dans une DensityFunction.Spline.
+     * Utilisé pour la récursion profonde des splines.
+     */
+    private static GpuNode extractSplineInternal(Object internalSpline) {
+        try {
+            GpuNode coordinateNode = extractSplineCoordinate(internalSpline);
+            float[] locations = toFloatArray(invokeSafe(internalSpline, "locations"));
+            List<?> valuesList = (List<?>) invokeSafe(internalSpline, "values");
+            float[] derivatives = toFloatArray(invokeSafe(internalSpline, "derivatives"));
+
+            if (locations == null || valuesList == null || derivatives == null) {
+                return new GpuNode.Constant(0.0);
+            }
+
+            GpuNode[] recursiveValues = new GpuNode[valuesList.size()];
+            for (int i = 0; i < valuesList.size(); i++) {
+                recursiveValues[i] = visit(valuesList.get(i));
+            }
+
+            GpuNode.HermiteInterpolation node = new GpuNode.HermiteInterpolation(
+                coordinateNode, locations, recursiveValues, derivatives, -1
+            );
+
+            int splineId = SplineRegistry.registerSplineFunction(internalSpline, node);
+            return new GpuNode.HermiteInterpolation(
+                coordinateNode, locations, recursiveValues, derivatives, splineId
+            );
+        } catch (Exception e) {
+            return new GpuNode.Unknown("SplineInternal_Error");
         }
     }
 }

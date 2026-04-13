@@ -204,7 +204,7 @@ float blendedNoise(float globalX, float globalY, float globalZ) {
     return total * 20.0f;
 }
 
-// %s fonctions de splines iront ici
+/*#FUNCTIONS#*/
 
 // ==============================
 // Main
@@ -223,7 +223,7 @@ void main() {
         uint arrayIndex = (x * uint(pc.height) * 16) + (z * uint(pc.height)) + uint(localY);
         if (arrayIndex >= uint(pc.maxIndex)) continue;
 
-        float finalDensity = %s;
+        float finalDensity = /*#EXPRESSION#*/;
         densities[arrayIndex] = finalDensity;
     }
 }
@@ -236,14 +236,22 @@ void main() {
         // 1. Génération de l'expression principale
         String expression = buildExpression(root);
         
-        // 2. Génération des fonctions de splines (ordre inverse pour éviter les forward declarations si possible, 
-        //    mais GLSL 4.50 le gère bien avec des prototypes si besoin)
+        // 2. Génération des fonctions de splines
         StringBuilder functions = new StringBuilder();
-        for (com.architect.gpuchunkgenerator.ast.ir.GpuNode.HermiteInterpolation node : SplineRegistry.getRegisteredNodes()) {
-            functions.append(generateSplineFunction(node));
+        this.isFunctionalMode = true;
+        try {
+            for (com.architect.gpuchunkgenerator.ast.ir.GpuNode.HermiteInterpolation node : SplineRegistry.getRegisteredNodes()) {
+                functions.append(generateSplineFunction(node));
+            }
+        } finally {
+            this.isFunctionalMode = false;
         }
         
-        return String.format(SHADER_TEMPLATE.replace("%s", expression), functions.toString());
+        String shader = SHADER_TEMPLATE;
+        shader = shader.replace("/*#FUNCTIONS#*/", functions.toString());
+        shader = shader.replace("/*#EXPRESSION#*/", expression);
+        
+        return shader;
     }
 
     private String generateSplineFunction(GpuNode.HermiteInterpolation node) {
@@ -361,7 +369,7 @@ void main() {
 
             case GpuNode.HermiteInterpolation hi -> {
                 String coord = buildExpression(hi.coordinate());
-                yield String.format(Locale.US, "eval_spline_%d(%s, globalX, absoluteY, globalZ)", hi.splineId(), coord);
+                yield String.format(Locale.US, "eval_spline_%d(%s, %s, %s, %s)", hi.splineId(), coord, gx(), gy(), gz());
             }
 
             case GpuNode.YClampedGradient grad ->
@@ -391,6 +399,10 @@ void main() {
 
             case GpuNode.BlendedNoise bn -> {
                 yield "blendedNoise(" + gx() + ", " + gy() + ", " + gz() + ")";
+            }
+
+            case GpuNode.Reference ref -> {
+                yield ref.functionName() + "(" + gx() + ", " + gy() + ", " + gz() + ")";
             }
 
             case GpuNode.Unknown unknown -> {
