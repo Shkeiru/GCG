@@ -7,6 +7,7 @@ import net.minecraft.world.level.levelgen.synth.NormalNoise;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -307,46 +308,111 @@ public class AstOptimizer {
 
     private static GpuNode extractSpline(Object obj) {
         Object internalSpline = invokeSafe(obj, "spline");
+        if (internalSpline == null) return new GpuNode.Constant(0.0);
 
-        GpuNode coordinateNode = new GpuNode.Constant(0.0); // Fallback
+        String className = internalSpline.getClass().getName();
+
+        // 1. CubicSpline.Constant
+        if (className.contains("$Constant")) {
+            try {
+                double val = ((Number) invokeSafe(internalSpline, "value")).doubleValue();
+                return new GpuNode.Constant(val);
+            } catch (Exception e) {
+                try {
+                    double val = ((Number) invokeSafe(internalSpline, "c")).doubleValue();
+                    return new GpuNode.Constant(val);
+                } catch (Exception e2) {
+                    return new GpuNode.Constant(0.0);
+                }
+            }
+        }
+
+        // 2. CubicSpline.Multipoint
+        if (className.contains("$Multipoint")) {
+            try {
+                // A. Coordonnée d'entrée
+                GpuNode coordinateNode = extractSplineCoordinate(internalSpline);
+
+                // B. Données d'interpolation
+                float[] locations = toFloatArray(invokeSafe(internalSpline, "locations"));
+                List<?> valuesList = (List<?>) invokeSafe(internalSpline, "values");
+                float[] derivatives = toFloatArray(invokeSafe(internalSpline, "derivatives"));
+
+                if (locations == null || valuesList == null || derivatives == null) {
+                    return new GpuNode.Constant(0.0);
+                }
+
+                // C. Expansion récursive des valeurs (Poupées Russes)
+                GpuNode[] recursiveValues = new GpuNode[valuesList.size()];
+                for (int i = 0; i < valuesList.size(); i++) {
+                    recursiveValues[i] = visit(valuesList.get(i));
+                }
+
+                // D. Création du nœud d'interpolation
+                GpuNode.HermiteInterpolation node = new GpuNode.HermiteInterpolation(
+                    coordinateNode,
+                    locations,
+                    recursiveValues,
+                    derivatives,
+                    -1 // ID sera assigné par le registre
+                );
+
+                // E. Enregistrement pour génération de fonction GLSL
+                int splineId = SplineRegistry.registerSplineFunction(internalSpline, node);
+                
+                // On retourne un nœud avec l'ID final
+                return new GpuNode.HermiteInterpolation(
+                    coordinateNode,
+                    locations,
+                    recursiveValues,
+                    derivatives,
+                    splineId
+                );
+
+            } catch (Exception e) {
+                System.err.println("[AstOptimizer] Erreur extraction Multipoint: " + e.getMessage());
+                return new GpuNode.Unknown("Multipoint_Error");
+            }
+        }
+
+        return new GpuNode.Unknown("UnknownSpline_" + className);
+    }
+
+    private static GpuNode extractSplineCoordinate(Object spline) {
+        Object coordWrapper = invokeSafe(spline, "coordinate");
+        if (coordWrapper == null) {
+            coordWrapper = invokeSafe(spline, "coordinateFunction");
+        }
         
-        // Tenter d'extraire le coordinate depuis l'objet Spline principal s'il existe
-        Object coordWrapper = invokeSafe(obj, "coordinate");
+        if (coordWrapper == null) return new GpuNode.Constant(0.0);
 
-        if (coordWrapper == null && internalSpline != null) {
-            // Sinon tenter d'extraire le coordinate depuis la spline interne
-            coordWrapper = invokeSafe(internalSpline, "coordinate");
-            if (coordWrapper == null) {
-                // Essayer via la méthode coordinateFunction() ou locationFunction()
-                coordWrapper = invokeSafe(internalSpline, "coordinateFunction");
+        if (coordWrapper instanceof DensityFunction df) {
+            return visit(df);
+        } else {
+            Object holder = invokeSafe(coordWrapper, "function");
+            if (holder == null) {
+                holder = findFieldByType(coordWrapper, DensityFunction.class);
             }
-        }
 
-        if (coordWrapper != null) {
-            // Si coordWrapper est directement un DensityFunction
-            if (coordWrapper instanceof DensityFunction df) {
-                coordinateNode = visit(df);
+            if (holder instanceof Holder<?> h && h.isBound()) {
+                return visit(h.value());
+            } else if (holder != null) {
+                return visit(holder);
             } else {
-                // Le coordinate wrapper contient un Holder<DensityFunction>
-                Object holder = invokeSafe(coordWrapper, "function");
-                if (holder == null) {
-                    holder = findFieldByType(coordWrapper, DensityFunction.class);
-                }
-
-                if (holder instanceof Holder<?> h && h.isBound()) {
-                    coordinateNode = visit(h.value());
-                } else if (holder != null) {
-                    coordinateNode = visit(holder);
-                } else {
-                    coordinateNode = visit(coordWrapper);
-                }
+                return visit(coordWrapper);
             }
         }
+    }
 
-        if (internalSpline != null) {
-            return SplineRegistry.register(internalSpline, coordinateNode);
+    private static float[] toFloatArray(Object obj) {
+        if (obj == null) return null;
+        if (obj instanceof float[] f) return f;
+        if (obj instanceof List<?> l) {
+            float[] res = new float[l.size()];
+            for (int i = 0; i < l.size(); i++) res[i] = ((Number) l.get(i)).floatValue();
+            return res;
         }
-        return new GpuNode.Spline(coordinateNode, -1, -2.0f, 2.0f);
+        return null;
     }
 
     // ================================================================

@@ -79,6 +79,18 @@ public class IrDumper {
                 dumpRecursive(spline.coordinate(), depth + 2, sb);
             }
 
+            case GpuNode.HermiteInterpolation hi -> {
+                sb.append(indent).append("- HermiteInterpolation (id=").append(hi.splineId())
+                  .append(", points=").append(hi.locations().length).append(")\n");
+                sb.append(indent).append("  coordinate:\n");
+                dumpRecursive(hi.coordinate(), depth + 2, sb);
+                for (int i = 0; i < hi.locations().length; i++) {
+                    sb.append(indent).append("  Pt[").append(i).append("] (").append(hi.locations()[i])
+                      .append(", der: ").append(hi.derivatives()[i]).append("):\n");
+                    dumpRecursive(hi.values()[i], depth + 3, sb);
+                }
+            }
+
             case GpuNode.YClampedGradient grad ->
                 sb.append(indent).append("- YClampedGradient (Y: ").append(grad.fromY())
                   .append("→").append(grad.toY())

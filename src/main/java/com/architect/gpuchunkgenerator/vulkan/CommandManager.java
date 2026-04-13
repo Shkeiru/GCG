@@ -22,7 +22,7 @@ public class CommandManager {
     private ComputePipeline pipeline;
 
     private VulkanBuffer noisePermutationBuffer; // Binding 1: Legacy Noise
-    private VulkanBuffer multiSplineLutBuffer;   // Binding 4: Multi-LUT Splines
+    // multiSplineLutBuffer removed - using functional splines
     private VulkanBuffer noiseParamsBuffer;      // Binding 3: Instance-specific Noise Parameters
     private VulkanBuffer legacySplineLutBuffer;  // Binding 2: (Désuet)
     
@@ -104,13 +104,11 @@ public class CommandManager {
 
     private void initDescriptors() {
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            // Pool (5 descripteurs : Output + LegacyNoise + LegacySpline + NoiseParams + MultiSpline)
+            // Pool (5 descripteurs : Bindings 0 à 4 requis par ComputePipeline)
             VkDescriptorPoolSize.Buffer poolSizes = VkDescriptorPoolSize.calloc(5, stack);
-            poolSizes.get(0).type(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER).descriptorCount(1);
-            poolSizes.get(1).type(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER).descriptorCount(1);
-            poolSizes.get(2).type(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER).descriptorCount(1);
-            poolSizes.get(3).type(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER).descriptorCount(1);
-            poolSizes.get(4).type(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER).descriptorCount(1);
+            for (int i = 0; i < 5; i++) {
+                poolSizes.get(i).type(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER).descriptorCount(1);
+            }
 
             VkDescriptorPoolCreateInfo poolInfo = VkDescriptorPoolCreateInfo.calloc(stack)
                     .sType(VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO)
@@ -144,11 +142,10 @@ public class CommandManager {
 
     private void updateDescriptors() {
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            int writeCount = 1;
+            int writeCount = 1; // Output
             if (noisePermutationBuffer != null) writeCount++;
             if (legacySplineLutBuffer != null) writeCount++;
             if (noiseParamsBuffer != null) writeCount++;
-            if (multiSplineLutBuffer != null) writeCount++;
             
             VkWriteDescriptorSet.Buffer descriptorWrites = VkWriteDescriptorSet.calloc(writeCount, stack);
             int currentWrite = 0;
@@ -215,21 +212,7 @@ public class CommandManager {
                         .pBufferInfo(paramsInfo);
             }
 
-            // Binding 4 : Multi-LUT Splines
-            if (multiSplineLutBuffer != null) {
-                VkDescriptorBufferInfo.Buffer multiLutInfo = VkDescriptorBufferInfo.calloc(1, stack)
-                        .buffer(multiSplineLutBuffer.bufferHandle())
-                        .offset(0)
-                        .range(multiSplineLutBuffer.size());
-
-                descriptorWrites.get(currentWrite++)
-                        .sType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET)
-                        .dstSet(descriptorSet)
-                        .dstBinding(4)
-                        .descriptorCount(1)
-                        .descriptorType(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-                        .pBufferInfo(multiLutInfo);
-            }
+            // Binding 4 : Removed
 
             vkUpdateDescriptorSets(context.getDevice(), descriptorWrites, null);
         }
@@ -331,34 +314,7 @@ public class CommandManager {
         System.out.println("[Vulkan] Permutations 'Legacy' injectées.");
     }
 
-    public void uploadMultiSplineLuts(java.util.List<com.architect.gpuchunkgenerator.ast.SplineRegistry.BakedSplineData> splines) {
-        if (splines == null || splines.isEmpty()) return;
-
-        System.out.println("[Vulkan] Injection de " + splines.size() + " LUTs de splines en VRAM...");
-
-        if (multiSplineLutBuffer != null) {
-            multiSplineLutBuffer.destroy(context.getDevice());
-        }
-
-        long totalSize = (long) splines.size() * com.architect.gpuchunkgenerator.ast.SplineRegistry.RESOLUTION * 4L;
-        multiSplineLutBuffer = allocator.createBuffer(totalSize,
-                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-        PointerBuffer pData = MemoryUtil.memAllocPointer(1);
-        vkMapMemory(context.getDevice(), multiSplineLutBuffer.memoryHandle(), 0, totalSize, 0, pData);
-        java.nio.FloatBuffer floatBuffer = MemoryUtil.memFloatBuffer(pData.get(0), (int) (totalSize / 4));
-
-        for (com.architect.gpuchunkgenerator.ast.SplineRegistry.BakedSplineData data : splines) {
-            floatBuffer.put(data.lut());
-        }
-        
-        vkUnmapMemory(context.getDevice(), multiSplineLutBuffer.memoryHandle());
-        MemoryUtil.memFree(pData);
-
-        updateDescriptors();
-        System.out.println("[Vulkan] Multi-LUT Splines injectées.");
-    }
+    /* uploadMultiSplineLuts Removed */
 
     public void uploadSplineLut(float[] lut) {
         if (lut == null || lut.length == 0) return;
@@ -472,17 +428,12 @@ public class CommandManager {
         vkDestroyDescriptorPool(device, descriptorPool, null);
         vkDestroyCommandPool(device, commandPool, null);
         
-        // Destruction de la pipeline (Important pour éviter les fuites signalées par les Validation Layers)
         if (pipeline != null) {
             pipeline.destroy();
         }
 
         if (noiseParamsBuffer != null) {
             noiseParamsBuffer.destroy(device);
-        }
-
-        if (multiSplineLutBuffer != null) {
-            multiSplineLutBuffer.destroy(device);
         }
 
         if (legacySplineLutBuffer != null) {

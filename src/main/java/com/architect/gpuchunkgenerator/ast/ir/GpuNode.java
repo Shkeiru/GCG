@@ -13,6 +13,7 @@ public sealed interface GpuNode permits
     GpuNode.ShiftedNoise,
     GpuNode.ShiftNoise,
     GpuNode.Spline,
+    GpuNode.HermiteInterpolation,
     GpuNode.YClampedGradient,
     GpuNode.RangeChoice,
     GpuNode.WeirdScaledSampler,
@@ -98,6 +99,17 @@ public sealed interface GpuNode permits
         int splineId,
         float inputMin,
         float inputMax
+    ) implements GpuNode {}
+
+    /** 
+     * Interpolation d'Hermite dynamique (expansion de CubicSpline.Multipoint).
+     */
+    record HermiteInterpolation(
+        GpuNode coordinate,
+        float[] locations,
+        GpuNode[] values,
+        float[] derivatives,
+        int splineId // ID unique pour la fonction GLSL
     ) implements GpuNode {}
 
     // ========================

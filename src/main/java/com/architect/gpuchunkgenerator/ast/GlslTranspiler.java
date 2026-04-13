@@ -18,9 +18,9 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, std430) buffer OutputBuffer { float densities[]; };
 layout(set = 0, binding = 1, std430) readonly buffer NoiseBuffer { int permutations[]; };
-layout(set = 0, binding = 2, std430) readonly buffer SplineLutBuffer { float splineLut[]; };
+layout(set = 0, binding = 2, std430) readonly buffer Unused1 { float u1[]; };
 layout(set = 0, binding = 3, std430) readonly buffer NoiseParameters { float data[]; } noiseParams;
-layout(set = 0, binding = 4, std430) readonly buffer MultiSplineLUTs { float baked_splines[]; };
+layout(set = 0, binding = 4, std430) readonly buffer Unused2 { float u2[]; };
 
 layout(push_constant) uniform PushConstants {
     int chunkX;
@@ -157,16 +157,11 @@ float scaleCaves(float v) {
 // Spline Multi-LUT
 // ==============================
 
-float sample_spline(float input_val, int spline_id, float min_val, float max_val) {
-    float RESOLUTION = 1024.0;
-    float clamped_in = clamp(input_val, min_val, max_val);
-    float t = (clamped_in - min_val) / (max_val - min_val);
-    float f_idx = t * (RESOLUTION - 1.0);
-    int idx0 = int(floor(f_idx));
-    int idx1 = min(idx0 + 1, int(RESOLUTION) - 1);
-    float fract_part = fract(f_idx);
-    int base_offset = spline_id * int(RESOLUTION);
-    return mix(baked_splines[base_offset + idx0], baked_splines[base_offset + idx1], fract_part);
+// Fonction d'interpolation d'Hermite générique utilisée par les splines générées
+float hermite_interp(float t, float y0, float y1, float d0, float d1, float h) {
+    float a = d0 * h - (y1 - y0);
+    float b = -d1 * h + (y1 - y0);
+    return (y0 + t * (y1 - y0)) + t * (1.0 - t) * (a + t * (b - a));
 }
 
 // ==============================
@@ -209,6 +204,8 @@ float blendedNoise(float globalX, float globalY, float globalZ) {
     return total * 20.0f;
 }
 
+// %s fonctions de splines iront ici
+
 // ==============================
 // Main
 // ==============================
@@ -235,8 +232,49 @@ void main() {
     public String transpile(GpuNode root) {
         this.isFunctionalMode = false;
         System.out.println("[GlslTranspiler] Début de la transpilation...");
+        
+        // 1. Génération de l'expression principale
         String expression = buildExpression(root);
-        return String.format(SHADER_TEMPLATE, expression);
+        
+        // 2. Génération des fonctions de splines (ordre inverse pour éviter les forward declarations si possible, 
+        //    mais GLSL 4.50 le gère bien avec des prototypes si besoin)
+        StringBuilder functions = new StringBuilder();
+        for (com.architect.gpuchunkgenerator.ast.ir.GpuNode.HermiteInterpolation node : SplineRegistry.getRegisteredNodes()) {
+            functions.append(generateSplineFunction(node));
+        }
+        
+        return String.format(SHADER_TEMPLATE.replace("%s", expression), functions.toString());
+    }
+
+    private String generateSplineFunction(GpuNode.HermiteInterpolation node) {
+        StringBuilder sb = new StringBuilder();
+        int n = node.locations().length;
+        
+        sb.append(String.format(Locale.US, "float eval_spline_%d(float x, float globalX, float globalY, float globalZ) {\n", node.splineId()));
+        
+        // Clamping & Extrapolation
+        sb.append(String.format(Locale.US, "    if (x <= %.5ff) return %s + %.5ff * (x - %.5ff);\n", 
+            node.locations()[0], buildExpression(node.values()[0]), node.derivatives()[0], node.locations()[0]));
+        
+        sb.append(String.format(Locale.US, "    if (x >= %.5ff) return %s + %.5ff * (x - %.5ff);\n", 
+            node.locations()[n-1], buildExpression(node.values()[n-1]), node.derivatives()[n-1], node.locations()[n-1]));
+        
+        // Interval search (Binary search would be better for > 8 points, but if-else is fine for now)
+        for (int i = 0; i < n - 1; i++) {
+            float x0 = node.locations()[i];
+            float x1 = node.locations()[i+1];
+            String cond = (i == n - 2) ? "" : String.format(Locale.US, "if (x < %.5ff) ", x1);
+            
+            sb.append("    ").append(cond).append("{\n");
+            sb.append(String.format(Locale.US, "        float x0 = %.5ff; float x1 = %.5ff; float h = x1 - x0;\n", x0, x1));
+            sb.append("        float t = (x - x0) / h;\n");
+            sb.append(String.format(Locale.US, "        float y0 = %s; float y1 = %s;\n", buildExpression(node.values()[i]), buildExpression(node.values()[i+1])));
+            sb.append(String.format(Locale.US, "        return hermite_interp(t, y0, y1, %.5ff, %.5ff, h);\n", node.derivatives()[i], node.derivatives()[i+1]));
+            sb.append("    }\n");
+        }
+        
+        sb.append("}\n\n");
+        return sb.toString();
     }
 
     public String transpileAsFunction(String functionName, GpuNode root) {
@@ -318,9 +356,12 @@ void main() {
             }
 
             case GpuNode.Spline spline -> {
-                String coordExpr = buildExpression(spline.coordinate());
-                yield "sample_spline(" + coordExpr + ", " + spline.splineId() + ", "
-                      + fmt(spline.inputMin()) + ", " + fmt(spline.inputMax()) + ")";
+                yield "/* Legacy Spline Bypassed */ 0.0f";
+            }
+
+            case GpuNode.HermiteInterpolation hi -> {
+                String coord = buildExpression(hi.coordinate());
+                yield String.format(Locale.US, "eval_spline_%d(%s, globalX, absoluteY, globalZ)", hi.splineId(), coord);
             }
 
             case GpuNode.YClampedGradient grad ->

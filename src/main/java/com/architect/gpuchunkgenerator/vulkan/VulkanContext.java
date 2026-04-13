@@ -258,11 +258,7 @@ public class VulkanContext {
         }
     }
 
-    public void uploadMultiSplineLuts(java.util.List<com.architect.gpuchunkgenerator.ast.SplineRegistry.BakedSplineData> splines) {
-        if (commandManager != null) {
-            commandManager.uploadMultiSplineLuts(splines);
-        }
-    }
+    /* LUT Upload removed in favor of functional splines */
 
     /**
      * Libère les ressources Vulkan.

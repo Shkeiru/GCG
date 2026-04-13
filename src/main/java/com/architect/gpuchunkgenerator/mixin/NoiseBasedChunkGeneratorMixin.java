@@ -75,9 +75,8 @@ public abstract class NoiseBasedChunkGeneratorMixin {
                                    transpiler.transpileAsFunction("get_Erosion", optEro) +
                                    transpiler.transpileAsFunction("get_Weirdness", optRid);
 
-                // F. Injection des Paramètres de Bruit et Splines réels (Injection du "Cerveau" JIT)
+                // F. Injection des Paramètres de Bruit réels (Injection du "Cerveau" JIT)
                 VulkanContext.getInstance().uploadNoiseParameters(com.architect.gpuchunkgenerator.ast.NoiseExtractor.getRegisteredNoises());
-                VulkanContext.getInstance().uploadMultiSplineLuts(com.architect.gpuchunkgenerator.ast.SplineRegistry.getRegisteredSplines());
                 
                 String mainGlsl = transpiler.transpile(optimizedTree);
                 String glslCode = mainGlsl.replace("void main()", biomicGlsl + "\nvoid main()");
@@ -85,9 +84,7 @@ public abstract class NoiseBasedChunkGeneratorMixin {
                 // Sauvegarde de debug du shader généré
                 try {
                     String shaderName = "generated_shader.comp";
-                    java.nio.file.Files.createDirectories(java.nio.file.Paths.get("run"));
                     java.nio.file.Files.writeString(java.nio.file.Paths.get(shaderName), glslCode);
-                    java.nio.file.Files.writeString(java.nio.file.Paths.get("run", shaderName), glslCode);
                     System.out.println("[GCG] Shader GLSL dumpé dans : " + shaderName);
                 } catch (Exception e) {
                     System.err.println("[GCG] Impossible de dumper le shader : " + e.getMessage());
@@ -133,17 +130,15 @@ public abstract class NoiseBasedChunkGeneratorMixin {
                     int worldY = minY + y;
                     
                     if (density > 0.0f) {
-                        if (worldY < 63) {
-                            int worldX = (chunkX << 4) + x;
-                            int worldZ = (chunkZ << 4) + z;
-                            pos.set(worldX, worldY, worldZ);
-                            chunk.setBlockState(pos, water, false);
-                        }
-                    } else {
                         int worldX = (chunkX << 4) + x;
                         int worldZ = (chunkZ << 4) + z;
                         pos.set(worldX, worldY, worldZ);
                         chunk.setBlockState(pos, stone, false);
+                    } else if (worldY < 63) {
+                        int worldX = (chunkX << 4) + x;
+                        int worldZ = (chunkZ << 4) + z;
+                        pos.set(worldX, worldY, worldZ);
+                        chunk.setBlockState(pos, water, false);
                     }
                 }
             }
