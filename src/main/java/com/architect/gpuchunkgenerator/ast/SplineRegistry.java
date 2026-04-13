@@ -1,4 +1,6 @@
 package com.architect.gpuchunkgenerator.ast;
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
 
 import com.architect.gpuchunkgenerator.ast.ir.GpuNode;
 import java.util.ArrayList;
@@ -12,6 +14,7 @@ import java.util.Map;
  * La "cuisson" LUT 1D a été supprimée au profit d'une expansion AST dynamique.
  */
 public class SplineRegistry {
+    private static final Logger LOGGER = LogUtils.getLogger();
 
     private static final Map<Object, Integer> SPLINE_TO_ID = new HashMap<>();
     private static final List<GpuNode.HermiteInterpolation> REGISTERED_NODES = new ArrayList<>();
@@ -37,7 +40,7 @@ public class SplineRegistry {
         );
         REGISTERED_NODES.add(nodeWithId);
         
-        System.out.println("[SplineRegistry] Spline enregistrée pour GLSL : ID #" + id + " (" + node.locations().length + " points)");
+        LOGGER.info("Spline enregistrée pour GLSL : ID #{} ({} points)", id, node.locations().length);
         return id;
     }
 

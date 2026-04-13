@@ -13,6 +13,8 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -22,6 +24,7 @@ import java.util.concurrent.CompletableFuture;
  */
 @Mixin(NoiseBasedChunkGenerator.class)
 public abstract class NoiseBasedChunkGeneratorMixin {
+    private static final Logger LOGGER = LogUtils.getLogger();
     private static boolean hasDumpedNoise = false;
 
     @Inject(method = "fillFromNoise", at = @At("HEAD"), cancellable = true)
@@ -38,7 +41,7 @@ public abstract class NoiseBasedChunkGeneratorMixin {
         }
 
         if (!hasDumpedNoise && randomState != null) {
-            System.out.println("[GCG] DÉMARRAGE de l'initialisation JIT (Overworld détecté)...");
+            LOGGER.info("DÉMARRAGE de l'initialisation JIT (Overworld détecté)...");
             com.architect.gpuchunkgenerator.ast.SplineDumper.clear();
             
             try {
@@ -61,7 +64,7 @@ public abstract class NoiseBasedChunkGeneratorMixin {
                 com.architect.gpuchunkgenerator.ast.ir.IrDumper.dumpToFile(optimizedTree, "overworld_ir_dump.txt");
                 
                 // --- APPEL DU DUMP DE SPLINES ---
-                System.out.println("[GCG] Extraction de l'anatomie des splines...");
+                LOGGER.info("Extraction de l'anatomie des splines...");
                 com.architect.gpuchunkgenerator.ast.SplineDumper.clear();
                 // On dumpera toutes les splines rencontrées durant l'optimisation ou spécifiques
                 Object surfaceSpline = findFirstSpline(finalDensity);
@@ -101,16 +104,14 @@ public abstract class NoiseBasedChunkGeneratorMixin {
                 VulkanContext.getInstance().uploadNoiseParameters(com.architect.gpuchunkgenerator.ast.NoiseExtractor.getRegisteredNoises());
                 
                 String glslCode = transpiler.transpile(modularTree);
-                // On injecte les fonctions biômiques avant le main()
-                glslCode = glslCode.replace("void main()", biomicGlsl + "\nvoid main()");
 
                 // Sauvegarde de debug du shader généré
                 try {
                     String shaderName = "generated_shader.comp";
                     java.nio.file.Files.writeString(java.nio.file.Paths.get(shaderName), glslCode);
-                    System.out.println("[GCG] Shader GLSL dumpé dans : " + shaderName);
+                    LOGGER.info("Shader GLSL dumpé dans : {}", shaderName);
                 } catch (Exception e) {
-                    System.err.println("[GCG] Impossible de dumper le shader : " + e.getMessage());
+                    LOGGER.error("Impossible de dumper le shader", e);
                 }
                 
                 // G. Compilation SPIR-V et Reload Vulkan
@@ -118,10 +119,9 @@ public abstract class NoiseBasedChunkGeneratorMixin {
                 VulkanContext.getInstance().reloadPipeline(spirv);
                 
                 hasDumpedNoise = true;
-                System.out.println("[GCG] Initialisation JIT terminée avec succès !");
+                LOGGER.info("Initialisation JIT terminée avec succès !");
             } catch (Exception e) {
-                System.err.println("[GCG] ÉCHEC CRITIQUE de l'initialisation JIT : " + e.getMessage());
-                e.printStackTrace();
+                LOGGER.error("ÉCHEC CRITIQUE de l'initialisation JIT", e);
             }
         }
 

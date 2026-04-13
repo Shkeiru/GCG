@@ -4,9 +4,13 @@ import com.architect.gpuchunkgenerator.vulkan.VulkanContext;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
 
 @Mod("gpuchunkgenerator")
 public class GpuChunkGenerator {
+
+    public static final Logger LOGGER = LogUtils.getLogger();
 
     public GpuChunkGenerator(IEventBus modEventBus) {
         // Register the setup method for modloading
@@ -14,7 +18,7 @@ public class GpuChunkGenerator {
     }
 
     private void setup(final FMLCommonSetupEvent event) {
-        System.out.println("GPU Chunk Generator Initialization Started!");
+        LOGGER.info("GPU Chunk Generator Initialization Started!");
         
         // Initialisation de Vulkan
         try {
@@ -22,12 +26,12 @@ public class GpuChunkGenerator {
             
             // Enregistrement du hook de nettoyage
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                System.out.println("GPU Chunk Generator Shutdown Hook Triggered!");
+                LOGGER.info("GPU Chunk Generator Shutdown Hook Triggered!");
                 VulkanContext.getInstance().cleanup();
             }));
             
         } catch (Exception e) {
-            System.err.println("[Vulkan] Échec de l'initialisation : " + e.getMessage());
+            LOGGER.error("Échec de l'initialisation de Vulkan", e);
         }
     }
 }

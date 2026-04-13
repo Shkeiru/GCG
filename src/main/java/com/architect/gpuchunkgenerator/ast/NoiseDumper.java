@@ -1,4 +1,6 @@
 package com.architect.gpuchunkgenerator.ast;
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
 
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.NoiseRouter;
@@ -23,12 +25,13 @@ import java.util.Set;
  * Indispensable pour assurer la parité mathématique sur le GPU.
  */
 public class NoiseDumper {
+    private static final Logger LOGGER = LogUtils.getLogger();
 
     private static final Set<Object> VISITED = new HashSet<>();
 
     public static void dumpRandomState(RandomState randomState) {
         List<byte[]> octaves = extractAllPermutations(randomState);
-        System.out.println("[GCG] Début de l'extraction des tables de bruit (" + octaves.size() + " octaves)...");
+        LOGGER.info("Début de l'extraction des tables de bruit ({} octaves)...", octaves.size());
         
         StringBuilder sb = new StringBuilder();
         sb.append("=== DUMP DES TABLES DE PERMUTATION (SEED-BASED) ===\n");
@@ -42,9 +45,9 @@ public class NoiseDumper {
             Path path = Paths.get("run", "run", "noise_permutations_dump.txt");
             Files.createDirectories(path.getParent());
             Files.writeString(path, sb.toString());
-            System.out.println("[GCG] Tables de permutation extraites avec succès.");
+            LOGGER.info("Tables de permutation extraites avec succès.");
         } catch (IOException e) {
-            System.err.println("[GCG] Erreur lors de l'écriture du dump de bruit : " + e.getMessage());
+            LOGGER.error("Erreur lors de l'écriture du dump de bruit", e);
         }
     }
 
@@ -89,7 +92,7 @@ public class NoiseDumper {
             collectPerlinOctaves(noise, "maxLimitNoise", result);
             collectPerlinOctaves(noise, "mainNoise", result);
         } catch (Exception e) {
-            System.err.println("[GCG] Erreur collectBlendedNoiseData: " + e.getMessage());
+            LOGGER.error("Erreur collectBlendedNoiseData", e);
         }
     }
 

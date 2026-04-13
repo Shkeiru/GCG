@@ -108,6 +108,7 @@ public class ComputePipeline {
             // 4. Compute Pipeline
             VkComputePipelineCreateInfo.Buffer pipelineInfo = VkComputePipelineCreateInfo.calloc(1, stack)
                     .sType(VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO)
+                    .flags(VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT) // Disable driver-level optimization to prevent deadlocks
                     .layout(pipelineLayout)
                     .stage(VkPipelineShaderStageCreateInfo.calloc(stack)
                             .sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO)

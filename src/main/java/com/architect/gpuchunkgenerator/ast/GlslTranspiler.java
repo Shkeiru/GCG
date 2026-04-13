@@ -2,14 +2,18 @@ package com.architect.gpuchunkgenerator.ast;
 
 import com.architect.gpuchunkgenerator.ast.ir.GpuNode;
 import java.util.Locale;
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
 
 /**
  * Moteur de transpilation : Transforme l'IR GpuNode en code source GLSL (SPIR-V 450).
  * Supporte tous les types de nœuds de la cartographie DensityFunction 1.21.1.
  */
 public class GlslTranspiler {
+    private static final Logger LOGGER = LogUtils.getLogger();
 
     private boolean isFunctionalMode = false;
+    private final java.util.Map<String, String> customFunctions = new java.util.LinkedHashMap<>();
 
     private static final String SHADER_TEMPLATE = """
 #version 450
@@ -231,7 +235,7 @@ void main() {
 
     public String transpile(GpuNode root) {
         this.isFunctionalMode = false;
-        System.out.println("[GlslTranspiler] Début de la transpilation...");
+        LOGGER.info("Début de l'expression principale...");
         
         // 1. Génération de l'expression principale
         String expression = buildExpression(root);
@@ -240,6 +244,12 @@ void main() {
         StringBuilder functions = new StringBuilder();
         this.isFunctionalMode = true;
         try {
+            // Forward declarations
+            for (com.architect.gpuchunkgenerator.ast.ir.GpuNode.HermiteInterpolation node : SplineRegistry.getRegisteredNodes()) {
+                functions.append(String.format(Locale.US, "float eval_spline_%d(float x, float globalX, float globalY, float globalZ);\n", node.splineId()));
+            }
+            functions.append("\n");
+
             for (com.architect.gpuchunkgenerator.ast.ir.GpuNode.HermiteInterpolation node : SplineRegistry.getRegisteredNodes()) {
                 functions.append(generateSplineFunction(node));
             }
@@ -247,8 +257,13 @@ void main() {
             this.isFunctionalMode = false;
         }
         
+        StringBuilder customFuncsStr = new StringBuilder();
+        for (String code : this.customFunctions.values()) {
+            customFuncsStr.append(code).append("\n");
+        }
+        
         String shader = SHADER_TEMPLATE;
-        shader = shader.replace("/*#FUNCTIONS#*/", functions.toString());
+        shader = shader.replace("/*#FUNCTIONS#*/", customFuncsStr.toString() + "\n" + functions.toString());
         shader = shader.replace("/*#EXPRESSION#*/", expression);
         
         return shader;
@@ -289,9 +304,11 @@ void main() {
         this.isFunctionalMode = true;
         try {
             String expression = buildExpression(root);
-            return String.format(Locale.US,
+            String funcCode = String.format(Locale.US,
                 "float %s(float globalX, float globalY, float globalZ) {\n    return %s;\n}\n",
                 functionName, expression);
+            this.customFunctions.put(functionName, funcCode);
+            return funcCode;
         } finally {
             this.isFunctionalMode = false;
         }
@@ -407,10 +424,7 @@ void main() {
 
             case GpuNode.Unknown unknown -> {
                 String type = unknown.originalType();
-                if (type.equals("BlendedNoise")) {
-                    yield "blendedNoise(" + gx() + ", " + gy() + ", " + gz() + ")";
-                }
-                System.err.println("[GlslTranspiler] Type inconnu: " + type + " → 0.0f");
+                LOGGER.error("Type inconnu: {} → 0.0f", type);
                 yield "/* ERREUR: NOEUD INCONNU " + type + " */ 0.0f";
             }
         };

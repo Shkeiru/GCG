@@ -1,4 +1,6 @@
 package com.architect.gpuchunkgenerator.ast.ir;
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -9,6 +11,7 @@ import java.nio.file.Paths;
  * Utilitaire de dump pour la représentation intermédiaire (IR).
  */
 public class IrDumper {
+    private static final Logger LOGGER = LogUtils.getLogger();
 
     public static void dumpToFile(GpuNode node, String fileName) {
         StringBuilder sb = new StringBuilder();
@@ -22,10 +25,12 @@ public class IrDumper {
 
     private static void tryWrite(Path path, String content) {
         try {
-            if (path.getParent() != null && !Files.exists(path.getParent())) return;
+            if (path.getParent() != null) Files.createDirectories(path.getParent());
             Files.writeString(path, content);
-            System.out.println("[GCG] IR dumpé dans : " + path.toAbsolutePath());
-        } catch (IOException ignored) {}
+            LOGGER.info("IR dumpé dans : {}", path.toAbsolutePath());
+        } catch (IOException e) {
+            LOGGER.error("Erreur lors du dump de l'IR", e);
+        }
     }
 
     private static void dumpRecursive(GpuNode node, int depth, StringBuilder sb) {

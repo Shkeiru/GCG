@@ -1,9 +1,11 @@
 package com.architect.gpuchunkgenerator.ast;
 
 import com.architect.gpuchunkgenerator.ast.ir.GpuNode;
+import com.mojang.logging.LogUtils;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
+import org.slf4j.Logger;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -27,6 +29,7 @@ import java.util.Optional;
  *  - Caches : Interpolated, FlatCache, CacheAllInCell, Cache2D, CacheOnce, NoiseInterpolator
  */
 public class AstOptimizer {
+    private static final Logger LOGGER = LogUtils.getLogger();
 
     private static int depth = 0;
     private static int unknownCount = 0;
@@ -37,9 +40,9 @@ public class AstOptimizer {
      * Utilise l'identité mémoire de l'objet source.
      */
     public static void registerForcedMapping(Object vanillaObj, GpuNode node) {
-        if (vanillaObj != null) {
+        if (vanillaObj != null && !FORCED_MAPPINGS.containsKey(vanillaObj)) {
             FORCED_MAPPINGS.put(vanillaObj, node);
-            System.out.println("[GCG-AstOptimizer] Mapping forcé enregistré pour " + vanillaObj.getClass().getSimpleName());
+            LOGGER.info("Mapping forcé enregistré pour {}", vanillaObj.getClass().getSimpleName());
         }
     }
 
@@ -52,7 +55,7 @@ public class AstOptimizer {
         unknownCount = 0;
         GpuNode result = visit(function);
         if (unknownCount > 0) {
-            System.err.println("[GCG-AstOptimizer] ⚠ " + unknownCount + " nœud(s) non reconnus émis comme GpuNode.Unknown");
+            LOGGER.warn("⚠ {} nœud(s) non reconnus émis comme GpuNode.Unknown", unknownCount);
         }
         return result;
     }
@@ -100,7 +103,7 @@ public class AstOptimizer {
 
         // --- 2. Priorité aux mappings forcés (Identité sur l'objet déballé) ---
         if (FORCED_MAPPINGS.containsKey(current)) {
-            System.out.println("[GCG-AstOptimizer] Mapping forcé utilisé pour " + className);
+            LOGGER.info("Mapping forcé utilisé pour {}", className);
             return FORCED_MAPPINGS.get(current);
         }
 
@@ -232,19 +235,19 @@ public class AstOptimizer {
             }
 
             // BlendedNoise
-            if (className.equals("BlendedNoise") || className.endsWith(".BlendedNoise")) {
+        if (className.equals("BlendedNoise") || className.endsWith(".BlendedNoise")) {
                 return new GpuNode.BlendedNoise();
             }
 
         } catch (Exception e) {
-            System.err.println("[GCG-AstOptimizer] Erreur lors du traitement de " + className + ": " + e.getMessage());
+            LOGGER.error("Erreur lors du traitement de {}: {}", className, e.getMessage());
             return new GpuNode.Unknown(className + "_Error");
         }
 
         // Nœud non reconnu
         unknownCount++;
-        System.err.println("[AstOptimizer] TYPE NON GÉRÉ: " + className + " → 0.0f");
-        System.err.println("[GCG-CRITICAL] Nœud inconnu rencontré : " + className + " | Dump : " + current.toString());
+        LOGGER.error("TYPE NON GÉRÉ: {} → 0.0f", className);
+        LOGGER.error("Nœud inconnu rencontré : {} | Dump : {}", className, current.toString());
         return new GpuNode.Unknown(className);
     }
 

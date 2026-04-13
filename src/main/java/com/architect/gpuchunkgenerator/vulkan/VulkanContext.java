@@ -9,6 +9,8 @@ import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.util.shaderc.Shaderc;
 import org.lwjgl.vulkan.*;
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -25,6 +27,7 @@ import static org.lwjgl.vulkan.VK10.*;
  */
 public class VulkanContext {
 
+    private static final Logger LOGGER = LogUtils.getLogger();
     private static VulkanContext instance;
 
     private VkInstance vkInstance;
@@ -67,7 +70,7 @@ public class VulkanContext {
             this.allocator = new MemoryAllocator(this);
             this.commandManager = new CommandManager(this, pipeline, allocator);
             
-            System.out.println("[Vulkan] Système initialisé (Boot Shader) et prêt pour la génération JIT.");
+            LOGGER.info("Système initialisé (Boot Shader) et prêt pour la génération JIT.");
         }
     }
 
@@ -94,9 +97,9 @@ public class VulkanContext {
         PointerBuffer layers = null;
         if (isLayerAvailable("VK_LAYER_KHRONOS_validation")) {
             layers = stack.pointers(stack.UTF8("VK_LAYER_KHRONOS_validation"));
-            System.out.println("[Vulkan] Couche de validation détectée et activée.");
+            LOGGER.info("Couche de validation détectée et activée.");
         } else {
-            System.out.println("[Vulkan] Attention : VK_LAYER_KHRONOS_validation non trouvée.");
+            LOGGER.info("Attention : VK_LAYER_KHRONOS_validation non trouvée.");
         }
 
         VkInstanceCreateInfo createInfo = VkInstanceCreateInfo.calloc(stack)
@@ -111,7 +114,7 @@ public class VulkanContext {
         }
 
         vkInstance = new VkInstance(pInstance.get(0), createInfo);
-        System.out.println("[Vulkan] Instance créée avec succès.");
+        LOGGER.info("Instance créée avec succès.");
     }
 
     private boolean isLayerAvailable(String layerName) {
@@ -152,7 +155,7 @@ public class VulkanContext {
 
         VkPhysicalDeviceProperties properties = VkPhysicalDeviceProperties.malloc(stack);
         vkGetPhysicalDeviceProperties(physicalDevice, properties);
-        System.out.println("[Vulkan] GPU sélectionné : " + properties.deviceNameString());
+        LOGGER.info("GPU sélectionné : {}", properties.deviceNameString());
     }
 
     private boolean isDeviceSuitable(VkPhysicalDevice device, MemoryStack stack) {
@@ -196,7 +199,7 @@ public class VulkanContext {
         vkGetDeviceQueue(vkDevice, computeQueueFamilyIndex, 0, pQueue);
         computeQueue = new VkQueue(pQueue.get(0), vkDevice);
 
-        System.out.println("[Vulkan] Device logique et Queue de calcul créés.");
+        LOGGER.info("Device logique et Queue de calcul créés.");
     }
 
     public CommandManager getCommandManager() {
@@ -212,13 +215,13 @@ public class VulkanContext {
             throw new IllegalStateException("Le CommandManager n'est pas initialisé.");
         }
 
-        System.out.println("[Vulkan] Rechargement de la pipeline...");
+        LOGGER.info("Rechargement de la pipeline...");
         
         // 1. Récupération et destruction de l'ancienne pipeline
         ComputePipeline oldPipeline = commandManager.getComputePipeline();
         if (oldPipeline != null) {
             oldPipeline.destroy();
-            System.out.println("[Vulkan] Ancienne pipeline détruite.");
+            LOGGER.info("Ancienne pipeline détruite.");
         }
 
         // 2. Création de la nouvelle pipeline
@@ -227,7 +230,7 @@ public class VulkanContext {
         // 3. Mise à jour du CommandManager
         commandManager.setPipeline(newPipeline);
         
-        System.out.println("[Vulkan] Nouvelle pipeline installée avec succès.");
+        LOGGER.info("Nouvelle pipeline installée avec succès.");
     }
 
     public VkDevice getDevice() {
@@ -273,6 +276,6 @@ public class VulkanContext {
         if (vkInstance != null) {
             vkDestroyInstance(vkInstance, null);
         }
-        System.out.println("[Vulkan] Ressources libérées.");
+        LOGGER.info("Ressources libérées.");
     }
 }

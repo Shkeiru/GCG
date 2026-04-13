@@ -4,6 +4,8 @@ import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.vulkan.*;
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -16,6 +18,7 @@ import static org.lwjgl.vulkan.VK10.*;
  * Orchestrateur Vulkan pour l'exécution des calculs GPU.
  */
 public class CommandManager {
+    private static final Logger LOGGER = LogUtils.getLogger();
 
     private final VulkanContext context;
     private final MemoryAllocator allocator;
@@ -71,7 +74,7 @@ public class CommandManager {
         // 5. Fence pour la synchronisation
         initSync();
         
-        System.out.println("[Vulkan] CommandManager initialisé avec succès.");
+        LOGGER.info("CommandManager initialisé avec succès.");
     }
 
     private void initCommands() {
@@ -223,8 +226,8 @@ public class CommandManager {
      */
     public void uploadNoiseParameters(java.util.List<com.architect.gpuchunkgenerator.ast.ir.GpuNode.Noise> noises) {
         if (noises == null || noises.isEmpty()) return;
-
-        System.out.println("[Vulkan] Injection de " + noises.size() + " instances de bruit DoublePerlin en VRAM...");
+        
+        LOGGER.info("Injection de {} instances de bruit DoublePerlin en VRAM...", noises.size());
 
         if (noiseParamsBuffer != null) {
             noiseParamsBuffer.destroy(context.getDevice());
@@ -277,15 +280,15 @@ public class CommandManager {
         MemoryUtil.memFree(pData);
 
         updateDescriptors();
-        System.out.println("[Vulkan] Paramètres de bruit injectés (" + totalSize + " octets).");
+        LOGGER.info("Paramètres de bruit injectés ({} octets).", totalSize);
     }
 
     public void uploadNoisePermutations(java.util.List<byte[]> octaves) {
         if (octaves == null || octaves.isEmpty()) {
             return;
         }
-
-        System.out.println("[Vulkan] Injection de " + octaves.size() + " octaves de bruit 'Legacy' en VRAM...");
+        
+        LOGGER.info("Injection de {} octaves de bruit 'Legacy' en VRAM...", octaves.size());
 
         if (noisePermutationBuffer != null) {
             noisePermutationBuffer.destroy(context.getDevice());
@@ -311,15 +314,15 @@ public class CommandManager {
         MemoryUtil.memFree(pData);
 
         updateDescriptors();
-        System.out.println("[Vulkan] Permutations 'Legacy' injectées.");
+        LOGGER.info("Permutations 'Legacy' injectées.");
     }
 
     /* uploadMultiSplineLuts Removed */
 
     public void uploadSplineLut(float[] lut) {
         if (lut == null || lut.length == 0) return;
-
-        System.out.println("[Vulkan] Injection de la LUT de Spline (Legacy) en VRAM...");
+        
+        LOGGER.info("Injection de la LUT de Spline (Legacy) en VRAM...");
 
         if (legacySplineLutBuffer != null) {
             legacySplineLutBuffer.destroy(context.getDevice());

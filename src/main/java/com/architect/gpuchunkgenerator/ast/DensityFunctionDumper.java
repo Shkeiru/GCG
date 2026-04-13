@@ -1,4 +1,6 @@
 package com.architect.gpuchunkgenerator.ast;
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
 
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.core.Holder;
@@ -16,6 +18,7 @@ import java.util.Optional;
  * Utilise la réflexion sur les Records pour un parsing dynamique et exhaustif.
  */
 public class DensityFunctionDumper {
+    private static final Logger LOGGER = LogUtils.getLogger();
 
     public static void dumpToFile(DensityFunction function, String fileName) {
         StringBuilder sb = new StringBuilder();
@@ -24,14 +27,11 @@ public class DensityFunctionDumper {
         
         try {
             Path path = Paths.get("run", fileName);
+            Files.createDirectories(path.getParent());
             Files.writeString(path, sb.toString());
-            System.out.println("[GCG] AST dumpé avec succès dans : " + path.toAbsolutePath());
+            LOGGER.info("AST dumpé avec succès dans : {}", path.toAbsolutePath());
         } catch (IOException e) {
-            try {
-                Files.writeString(Paths.get(fileName), sb.toString());
-            } catch (IOException e2) {
-                System.err.println("[GCG] Échec de l'écriture de l'AST : " + e2.getMessage());
-            }
+            LOGGER.error("Erreur lors de l'écriture du dump d'AST", e);
         }
     }
 

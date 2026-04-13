@@ -1,4 +1,6 @@
 package com.architect.gpuchunkgenerator.vulkan;
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
 
 import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.util.shaderc.Shaderc;
@@ -11,6 +13,7 @@ import static org.lwjgl.util.shaderc.Shaderc.*;
  * Utilitaire de compilation GLSL -> SPIR-V via Shaderc.
  */
 public class ShaderCompiler {
+    private static final Logger LOGGER = LogUtils.getLogger();
 
     /**
      * Compile une source GLSL en bytecode SPIR-V.
@@ -24,7 +27,7 @@ public class ShaderCompiler {
         long options = shaderc_compile_options_initialize();
         // Optionnel : Configurer les options ici (ex: optimisation, version cible)
         shaderc_compile_options_set_target_env(options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
-        shaderc_compile_options_set_optimization_level(options, shaderc_optimization_level_size);
+        shaderc_compile_options_set_optimization_level(options, shaderc_optimization_level_zero);
 
         long result = shaderc_compile_into_spv(compiler, source, shaderKind, "main.comp", "main", options);
         if (result == 0) {

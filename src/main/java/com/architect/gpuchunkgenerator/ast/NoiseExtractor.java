@@ -1,4 +1,6 @@
 package com.architect.gpuchunkgenerator.ast;
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
 
 import com.architect.gpuchunkgenerator.ast.ir.GpuNode;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
@@ -16,6 +18,7 @@ import java.util.Map;
  * Parité 1:1 via NormalNoise (ex-DoublePerlin) et PerlinNoise (ex-OctavePerlin).
  */
 public class NoiseExtractor {
+    private static final Logger LOGGER = LogUtils.getLogger();
 
     private static final Map<NormalNoise, GpuNode.Noise> CACHE = new HashMap<>();
     private static final List<GpuNode.Noise> REGISTERED_NOISES = new ArrayList<>();
@@ -48,9 +51,8 @@ public class NoiseExtractor {
             return gpuNoise;
 
         } catch (Exception e) {
-            System.err.println("[GCG-FATAL] Impossible d'extraire les données de bruit pour " + name + " : " + e.getMessage());
-            e.printStackTrace();
-            return new GpuNode.Noise(name, xzScale, yScale, 1.0f, null, null, -1);
+            LOGGER.error("Impossible d'extraire les données de bruit pour {}", name, e);
+            return null;
         }
     }
 
